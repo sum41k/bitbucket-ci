@@ -1,0 +1,61 @@
+FROM alpine:3.17.2
+
+USER root
+SHELL ["/bin/sh", "-o", "pipefail", "-c"]
+
+ENV USERID=1000 \
+    USERNAME=ci-agent \
+    GROUPID=1000 \
+    GROUPNAME=ci-agent \
+    AWS_CLI_VERSION=1.27.85 \
+    DEFAULT_TERRAFORM_VERSION=1.3.6 \
+    PRECOMMIT_VERSION=3.1.1 \
+    TFENV_VERSION=v3.0.0 \
+    TFLINT_VERSION=v0.45.0 \
+    TFDOCS_VERSION=v0.16.0
+
+RUN addgroup -g $GROUPID $GROUPNAME && \
+    adduser -D -u $USERID -G $GROUPNAME $USERNAME
+
+WORKDIR /home/$USERNAME
+
+# bash, curl, git, openssh, pip, awscli
+RUN apk -v --no-cache add \
+    bash=5.2.15-r0 \
+    curl=7.88.1-r0 \
+    git=2.38.4-r1 \
+    jq=1.6-r2 \
+    unzip=6.0-r13 \
+    python3=3.10.10-r0 \
+#   openssh=9.1_p1-r2 \
+#   coreutils=9.1-r0 \
+    #pre-commit=$PRECOMMIT_VERSION \
+    py3-pip=22.3.1-r1 && \
+    pip3 install --upgrade awscli==$AWS_CLI_VERSION
+#   apk -v --purge del py-pip
+
+# terraform
+RUN curl -Lo /home/$USERNAME/terraform.zip https://releases.hashicorp.com/terraform/$DEFAULT_TERRAFORM_VERSION/terraform_${DEFAULT_TERRAFORM_VERSION}_linux_amd64.zip && \
+    unzip /home/$USERNAME/terraform.zip -d /home/$USERNAME && \
+    mv /home/$USERNAME/terraform /usr/local/bin/ && rm -r /home/$USERNAME/terraform.zip
+
+# pre-commit hooks
+
+RUN pip3 install --upgrade pre-commit==$PRECOMMIT_VERSION && \
+    # tflint
+    curl -Lo /home/$USERNAME/tflint.zip https://github.com/terraform-linters/tflint/releases/download/$TFLINT_VERSION/tflint_linux_amd64.zip && \
+    unzip /home/$USERNAME/tflint.zip -d /home/$USERNAME && \
+    mv /home/$USERNAME/tflint /usr/local/bin/ && rm -r /home/$USERNAME/tflint.zip && \
+    # terraform-docs
+    curl -Lo /home/$USERNAME/terraform-docs.tar.gz https://github.com/terraform-docs/terraform-docs/releases/download/$TFDOCS_VERSION/terraform-docs-$TFDOCS_VERSION-linux-amd64.tar.gz && \
+    tar -xzf /home/$USERNAME/terraform-docs.tar.gz -C /home/$USERNAME/ && \
+    mv /home/$USERNAME/terraform-docs /usr/local/bin/ && rm -r /home/$USERNAME/terraform-docs.tar.gz && \
+    chmod -R +x /usr/local/bin
+
+RUN mkdir -p /home/$USERNAME/.ssh && \
+    printf "Host *\n\tStrictHostKeyChecking no\n\tUserKnownHostsFile /dev/null" >> /home/$USERNAME/.ssh/config && \
+    chown -R $USERID:$GROUPID /home/$USERNAME
+
+USER ci-agent
+
+ENTRYPOINT ["/bin/sh"]
